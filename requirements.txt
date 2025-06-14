@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pillow
+numpy
+easyocr
+langchain
+langchain-google-genai
+python-multipart
+pydantic
