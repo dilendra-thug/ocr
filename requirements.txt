@@ -2,7 +2,7 @@ fastapi
 uvicorn
 pillow
 numpy
-easyocr
+requests
 langchain
 langchain-google-genai
 python-multipart

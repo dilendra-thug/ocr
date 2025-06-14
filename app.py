@@ -4,15 +4,16 @@ from pydantic import BaseModel
 from PIL import Image
 import numpy as np
 import io
-import easyocr
+import requests
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 
 # --- CONFIGURATION ---
 
-API_KEY = "AIzaSyBK5gc2fbQAOBP218EAplCHdssNf7C3hm8"  # Replace with your real key
+OCR_API_KEY = "helloworld"  # OCR.space free default key
 MODEL_NAME = "gemini-1.5-flash"
+GEMINI_API_KEY = "AIzaSyBK5gc2fbQAOBP218EAplCHdssNf7C3hm8"
 
 # Default values based on your dataset
 DEFAULT_VALUES = {
@@ -28,7 +29,7 @@ DEFAULT_VALUES = {
 # LangChain + Gemini setup
 llm = ChatGoogleGenerativeAI(
     model=MODEL_NAME,
-    google_api_key=API_KEY,
+    google_api_key=GEMINI_API_KEY,
     temperature=0.5
 )
 
@@ -45,9 +46,6 @@ response_schemas = [
 output_parser = StructuredOutputParser.from_response_schemas(response_schemas)
 format_instructions = output_parser.get_format_instructions()
 
-# EasyOCR setup
-ocr_reader = easyocr.Reader(['en', 'ne'])
-
 # FastAPI app
 app = FastAPI(
     title="Soil Report OCR Extractor",
@@ -59,16 +57,21 @@ app = FastAPI(
 @app.post("/soil-ocr/")
 async def analyze_soil_image(file: UploadFile = File(...)):
     try:
-        # Step 1: Read and preprocess image
+        # Step 1: Read and send image to OCR.space
         image_bytes = await file.read()
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        image_np = np.array(image)
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            files={'filename': ('image.jpg', image_bytes)},
+            data={'apikey': OCR_API_KEY, 'language': 'eng'}
+        )
+        result = response.json()
 
-        # Step 2: OCR extraction
-        ocr_results = ocr_reader.readtext(image_np)
-        extracted_text = "\n".join([text for _, text, _ in ocr_results])
+        if result.get("IsErroredOnProcessing"):
+            raise ValueError("OCR API Error: " + result.get("ErrorMessage", ["Unknown error"])[0])
 
-        # Step 3: LLM prompt
+        extracted_text = result['ParsedResults'][0]['ParsedText']
+
+        # Step 2: LLM prompt
         prompt = f"""
 You are a soil report analyzer.
 
@@ -81,8 +84,6 @@ From the following raw soil report text, extract the following values:
 - pH (soil pH level)
 - rainfall (in mm)
 
-If values in the soil report are in Nepali language, translate them into English.
-
 Use this format:
 {format_instructions}
 
@@ -90,11 +91,11 @@ Soil Report Text:
 {extracted_text}
         """
 
-        # Step 4: Invoke Gemini
+        # Step 3: Invoke Gemini
         gemini_response = llm.invoke(prompt)
         structured_data = output_parser.parse(gemini_response.content)
 
-        # Step 5: Fill missing fields with default values
+        # Step 4: Fill missing fields with default values
         complete_data = {}
         for key, default in DEFAULT_VALUES.items():
             value = structured_data.get(key)
@@ -106,7 +107,6 @@ Soil Report Text:
                 except ValueError:
                     complete_data[key] = default
 
-        # Step 6: Return response
         return {
             "status": "success",
             "raw_text": extracted_text,
