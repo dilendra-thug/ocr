@@ -1,0 +1,11 @@
+# Ignore virtual environment
+venv/
+
+# Ignore specific Python files
+api.py
+main.py
+ocr.py
+
+# (Optional) Ignore compiled files and cache
+__pycache__/
+*.pyc
